@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/reading.dart';
+import '../models/oxygen_reading.dart';
 
 class SupabaseService {
   static const _url = 'https://kfbfnfrwhmdoeqxyikdb.supabase.co';
@@ -86,6 +87,48 @@ class SupabaseService {
     final remote = await fetchAllReadings();
     final merged = <String, Reading>{};
     for (final r in localReadings) {
+      merged[r.id] = r;
+    }
+    for (final r in remote) {
+      merged[r.id] = r;
+    }
+    final list = merged.values.toList();
+    list.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return list;
+  }
+
+  // ── Lecturas de oxígeno ───────────────────────────────
+  Future<List<OxygenReading>> fetchAllOxygenReadings() async {
+    final data = await _client
+        .from('oxygen_readings')
+        .select()
+        .order('recorded_at', ascending: false);
+    return (data as List)
+        .map((e) => OxygenReading.fromSupabaseRow(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> pushOxygenReading(OxygenReading r) async {
+    await _client.from('oxygen_readings').upsert(r.toSupabaseRow());
+  }
+
+  /// Sube lecturas de oxígeno locales que no existen en Supabase.
+  Future<void> syncOxygenToRemote(List<OxygenReading> local) async {
+    if (local.isEmpty) return;
+    final remoteData = await _client.from('oxygen_readings').select('id');
+    final remoteIds = (remoteData as List).map((e) => e['id'] as String).toSet();
+    final toUpload = local.where((r) => !remoteIds.contains(r.id)).toList();
+    if (toUpload.isEmpty) return;
+    await _client
+        .from('oxygen_readings')
+        .upsert(toUpload.map((r) => r.toSupabaseRow()).toList());
+  }
+
+  /// Descarga oxygen_readings de Supabase y hace unión con local por ID.
+  Future<List<OxygenReading>> fetchAndMergeOxygen(List<OxygenReading> local) async {
+    final remote = await fetchAllOxygenReadings();
+    final merged = <String, OxygenReading>{};
+    for (final r in local) {
       merged[r.id] = r;
     }
     for (final r in remote) {

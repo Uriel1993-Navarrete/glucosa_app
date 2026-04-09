@@ -3,9 +3,11 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/reading.dart';
+import '../models/oxygen_reading.dart';
 
 class StorageService {
   static const _key = 'glucosa_readings_v1';
+  static const _keyOxygen = 'spo2_readings_v1';
   static const _userKey = 'current_user_name';
   static const _membersKey = 'family_members_cache';
   static const _syncDoneKey = 'initial_sync_done';
@@ -51,6 +53,33 @@ class StorageService {
   Future<void> deleteReading(String id, List<Reading> current) async {
     final updated = current.where((r) => r.id != id).toList();
     await saveReadings(updated);
+  }
+
+  // ── CRUD SpO2 ─────────────────────────────────────────
+  List<OxygenReading> loadOxygenReadings() {
+    final raw = _prefs.getString(_keyOxygen);
+    if (raw == null) return [];
+    try {
+      final List<dynamic> list = jsonDecode(raw) as List;
+      return list.map((e) => OxygenReading.fromJson(e as Map<String, dynamic>)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> saveOxygenReadings(List<OxygenReading> readings) async {
+    final encoded = jsonEncode(readings.map((r) => r.toJson()).toList());
+    await _prefs.setString(_keyOxygen, encoded);
+  }
+
+  Future<void> addOxygenReading(OxygenReading reading, List<OxygenReading> current) async {
+    final updated = [reading, ...current];
+    await saveOxygenReadings(updated);
+  }
+
+  Future<void> deleteOxygenReading(String id, List<OxygenReading> current) async {
+    final updated = current.where((r) => r.id != id).toList();
+    await saveOxygenReadings(updated);
   }
 
   // ── BACKUP FILE (documentos del teléfono) ─────────────
@@ -103,6 +132,28 @@ class StorageService {
         r.glucoseValue.toString(), r.status.labelPlain,
         r.insulinDose?.toString() ?? '',
         r.insulinType ?? '',
+        r.note ?? '',
+        r.patientName,
+        r.recordedBy,
+      ].map((c) => '"$c"').join(',');
+      buf.writeln(cells);
+    }
+    await file.writeAsString('\uFEFF${buf.toString()}');
+    return file.path;
+  }
+
+  Future<String> exportOxygenCsvPath(List<OxygenReading> readings) async {
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/oxigenacion-historial.csv');
+    final buf = StringBuffer();
+    buf.writeln('Fecha,Hora,SpO2 (%),Estado,Notas,Paciente,Registrado por');
+    for (final r in readings.reversed) {
+      final date = '${r.timestamp.day}/${r.timestamp.month}/${r.timestamp.year}';
+      final time =
+          '${r.timestamp.hour.toString().padLeft(2, '0')}:${r.timestamp.minute.toString().padLeft(2, '0')}';
+      final cells = [
+        date, time,
+        r.spo2Value.toString(), r.status.labelPlain,
         r.note ?? '',
         r.patientName,
         r.recordedBy,
@@ -178,6 +229,7 @@ class StorageService {
   // ── RESET ─────────────────────────────────────────────
   Future<void> clearAll() async {
     await _prefs.remove(_key);
+    await _prefs.remove(_keyOxygen);
     try {
       final f = await _backupFile();
       if (await f.exists()) await f.delete();

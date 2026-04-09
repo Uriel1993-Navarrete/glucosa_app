@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'models/reading.dart';
+import 'models/oxygen_reading.dart';
 import 'services/storage_service.dart';
 import 'services/supabase_service.dart';
 import 'screens/register_screen.dart';
@@ -106,6 +107,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _tabIndex = 0;
   List<Reading> _allReadings = [];
+  List<OxygenReading> _allOxygenReadings = [];
   bool _loaded = false;
   String _currentUser = '';
   String _currentPatient = '';
@@ -114,6 +116,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<Reading> get _patientReadings =>
       _allReadings.where((r) => r.patientName == _currentPatient).toList();
+
+  List<OxygenReading> get _patientOxygenReadings =>
+      _allOxygenReadings.where((r) => r.patientName == _currentPatient).toList();
 
   @override
   void initState() {
@@ -149,10 +154,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final patient = storage.getCurrentPatient() ?? '';
     final local = storage.loadReadings();
     local.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    final localOxygen = storage.loadOxygenReadings();
+    localOxygen.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     setState(() {
       _currentUser = user;
       _currentPatient = patient;
       _allReadings = local;
+      _allOxygenReadings = localOxygen;
       _loaded = true;
     });
     _syncBackground(storage, local);
@@ -167,8 +175,16 @@ class _HomeScreenState extends State<HomeScreen> {
       final merged = await SupabaseService().fetchAndMerge(local);
       await storage.saveReadings(merged);
       await storage.markSyncNow();
+      // Sync oxygen readings en background
+      final localOxygen = storage.loadOxygenReadings();
+      await SupabaseService().syncOxygenToRemote(localOxygen);
+      final mergedOxygen = await SupabaseService().fetchAndMergeOxygen(localOxygen);
+      await storage.saveOxygenReadings(mergedOxygen);
       if (mounted) {
-        setState(() => _allReadings = merged);
+        setState(() {
+          _allReadings = merged;
+          _allOxygenReadings = mergedOxygen;
+        });
       }
     } catch (e) {
       debugPrint('[Sync] Error: $e');
@@ -179,7 +195,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final storage = await StorageService.getInstance();
     final all = storage.loadReadings();
     all.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    setState(() => _allReadings = all);
+    final allOxygen = storage.loadOxygenReadings();
+    allOxygen.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    setState(() {
+      _allReadings = all;
+      _allOxygenReadings = allOxygen;
+    });
   }
 
   Future<void> _changeUser() async {
@@ -213,23 +234,31 @@ class _HomeScreenState extends State<HomeScreen> {
     final patientReadings = _patientReadings;
 
     final tabs = [
-      _TabItem(label: 'Registrar', icon: Icons.edit_outlined, activeIcon: Icons.edit),
-      _TabItem(label: 'Historial', icon: Icons.list_alt_outlined, activeIcon: Icons.list_alt),
-      _TabItem(label: 'Gráfica', icon: Icons.show_chart_outlined, activeIcon: Icons.show_chart),
-      _TabItem(label: 'Datos', icon: Icons.cloud_outlined, activeIcon: Icons.cloud),
+      const _TabItem(label: 'Registrar', icon: Icons.edit_outlined, activeIcon: Icons.edit),
+      const _TabItem(label: 'Historial', icon: Icons.list_alt_outlined, activeIcon: Icons.list_alt),
+      const _TabItem(label: 'Gráfica', icon: Icons.show_chart_outlined, activeIcon: Icons.show_chart),
+      const _TabItem(label: 'Datos', icon: Icons.cloud_outlined, activeIcon: Icons.cloud),
     ];
+
+    final oxygenReadings = _patientOxygenReadings;
 
     final pages = [
       RegisterScreen(
         readings: patientReadings,
+        oxygenReadings: oxygenReadings,
         onSaved: _refresh,
         currentUser: _currentUser,
         currentPatient: _currentPatient,
       ),
-      HistoryScreen(readings: patientReadings, onChanged: _refresh),
-      ChartScreen(readings: patientReadings),
+      HistoryScreen(
+        readings: patientReadings,
+        oxygenReadings: oxygenReadings,
+        onChanged: _refresh,
+      ),
+      ChartScreen(readings: patientReadings, oxygenReadings: oxygenReadings),
       DataScreen(
         readings: patientReadings,
+        oxygenReadings: oxygenReadings,
         onChanged: _refresh,
         currentPatient: _currentPatient,
       ),

@@ -1,19 +1,20 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/reading.dart';
+import '../models/oxygen_reading.dart';
 import '../services/storage_service.dart';
 import '../services/supabase_service.dart';
 import '../theme.dart';
 
 class DataScreen extends StatefulWidget {
   final List<Reading> readings;
+  final List<OxygenReading> oxygenReadings;
   final VoidCallback onChanged;
   final String currentPatient;
   const DataScreen({
     super.key,
     required this.readings,
+    required this.oxygenReadings,
     required this.onChanged,
     required this.currentPatient,
   });
@@ -23,34 +24,16 @@ class DataScreen extends StatefulWidget {
 }
 
 class _DataScreenState extends State<DataScreen> {
-  List<Reading> get readings => widget.readings;
-  VoidCallback get onChanged => widget.onChanged;
   bool _syncing = false;
 
-  Future<void> _share(BuildContext context) async {
-    if (readings.isEmpty) {
-      _snack(context, 'No hay datos que exportar');
-      return;
-    }
-    try {
-      final storage = await StorageService.getInstance();
-      final path = await storage.exportJsonPath(readings);
-      await Share.shareXFiles([XFile(path)],
-          text: 'Historial de glucosa — Control de Glucosa App',
-          subject: 'Historial glucosa');
-    } catch (e) {
-      _snack(context, 'Error al exportar: $e');
-    }
-  }
-
   Future<void> _shareCSV(BuildContext context) async {
-    if (readings.isEmpty) {
-      _snack(context, 'No hay datos que exportar');
+    if (widget.readings.isEmpty) {
+      _snack(context, 'No hay datos de glucosa que exportar');
       return;
     }
     try {
       final storage = await StorageService.getInstance();
-      final path = await storage.exportCsvPath(readings);
+      final path = await storage.exportCsvPath(widget.readings);
       await Share.shareXFiles([XFile(path)],
           text: 'Historial de glucosa (Excel/CSV)',
           subject: 'Historial glucosa CSV');
@@ -59,43 +42,19 @@ class _DataScreenState extends State<DataScreen> {
     }
   }
 
-  Future<void> _import(BuildContext context) async {
+  Future<void> _shareOxygenCSV(BuildContext context) async {
+    if (widget.oxygenReadings.isEmpty) {
+      _snack(context, 'No hay datos de oxigenación que exportar');
+      return;
+    }
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['json'],
-        allowMultiple: false,
-      );
-      if (result == null || result.files.isEmpty) return;
-      final file = File(result.files.single.path!);
-      final content = await file.readAsString();
-
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('¿Cargar este historial?'),
-          content: const Text(
-              'Esto reemplazará los datos actuales en este dispositivo. Los datos también quedarán guardados automáticamente.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancelar'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Cargar', style: TextStyle(color: AppColors.teal, fontWeight: FontWeight.w700)),
-            ),
-          ],
-        ),
-      );
-      if (confirm != true) return;
-
       final storage = await StorageService.getInstance();
-      await storage.importFromJsonString(content);
-      onChanged();
-      _snack(context, '✓ Historial cargado y guardado correctamente');
+      final path = await storage.exportOxygenCsvPath(widget.oxygenReadings);
+      await Share.shareXFiles([XFile(path)],
+          text: 'Historial de saturación de oxígeno (Excel/CSV)',
+          subject: 'Historial SpO2 CSV');
     } catch (e) {
-      _snack(context, '❌ Archivo inválido o error al cargar');
+      _snack(context, 'Error: $e');
     }
   }
 
@@ -103,13 +62,16 @@ class _DataScreenState extends State<DataScreen> {
     setState(() => _syncing = true);
     try {
       final storage = await StorageService.getInstance();
-      // Subir primero los locales que faltan en Supabase
-      await SupabaseService().syncToRemote(readings);
-      // Luego descargar y hacer merge
-      final merged = await SupabaseService().fetchAndMerge(readings);
-      await storage.saveReadings(merged);
+      // Glucosa
+      await SupabaseService().syncToRemote(widget.readings);
+      final mergedGlucose = await SupabaseService().fetchAndMerge(widget.readings);
+      await storage.saveReadings(mergedGlucose);
+      // Oxigenación
+      await SupabaseService().syncOxygenToRemote(widget.oxygenReadings);
+      final mergedOxygen = await SupabaseService().fetchAndMergeOxygen(widget.oxygenReadings);
+      await storage.saveOxygenReadings(mergedOxygen);
       await storage.markSyncNow();
-      onChanged();
+      widget.onChanged();
       if (mounted) _snack(context, '✓ Sincronizado con la nube');
     } catch (e) {
       debugPrint('[SyncNow] Error: $e');
@@ -124,7 +86,8 @@ class _DataScreenState extends State<DataScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('¿Borrar todo el historial?'),
-        content: const Text('Esta acción eliminará todos los registros permanentemente. No se puede deshacer.'),
+        content: const Text(
+            'Esta acción eliminará todos los registros (glucosa y oxigenación) permanentemente. No se puede deshacer.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -132,7 +95,8 @@ class _DataScreenState extends State<DataScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Borrar todo', style: TextStyle(color: AppColors.red, fontWeight: FontWeight.w700)),
+            child: const Text('Borrar todo',
+                style: TextStyle(color: AppColors.red, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -140,8 +104,8 @@ class _DataScreenState extends State<DataScreen> {
     if (confirm != true) return;
     final storage = await StorageService.getInstance();
     await storage.clearAll();
-    onChanged();
-    _snack(context, 'Historial eliminado');
+    widget.onChanged();
+    if (mounted) _snack(context, 'Historial eliminado');
   }
 
   void _snack(BuildContext ctx, String msg) {
@@ -172,17 +136,24 @@ class _DataScreenState extends State<DataScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('💾 Paciente: ${widget.currentPatient}',
-                  style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.teal, fontSize: 13)),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, color: AppColors.teal, fontSize: 13)),
               const SizedBox(height: 4),
-              Text(
-                'Los datos se guardan automáticamente y se sincronizan con la nube. '
-                'Usa "Sincronizar" para ver los registros de otros familiares.',
-                style: TextStyle(fontSize: 12, color: AppColors.teal.withOpacity(.85), height: 1.5),
+              const Text(
+                'Los datos se guardan automáticamente y se sincronizan con la nube.',
+                style: TextStyle(fontSize: 12, color: AppColors.teal, height: 1.5),
               ),
               const SizedBox(height: 6),
-              Text(
-                '📊 ${readings.length} registros de ${widget.currentPatient.split(' ').first}',
-                style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.teal, fontSize: 12),
+              Row(
+                children: [
+                  Text('🩸 ${widget.readings.length} glucosa',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, color: AppColors.teal, fontSize: 12)),
+                  const SizedBox(width: 12),
+                  Text('🫁 ${widget.oxygenReadings.length} O₂',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, color: AppColors.teal, fontSize: 12)),
+                ],
               ),
             ],
           ),
@@ -200,34 +171,26 @@ class _DataScreenState extends State<DataScreen> {
         ),
         _actionCard(
           context,
-          icon: '📤',
-          title: 'Compartir con la familia',
-          desc: 'Manda el historial por WhatsApp, correo, etc.',
-          color: AppColors.teal,
-          onTap: () => _share(context),
-        ),
-        _actionCard(
-          context,
-          icon: '📥',
-          title: 'Cargar historial',
-          desc: 'Importa el archivo de otro familiar — queda guardado automáticamente',
-          color: AppColors.navy,
-          onTap: () => _import(context),
-        ),
-        _actionCard(
-          context,
           icon: '📊',
-          title: 'Exportar para el médico (CSV)',
-          desc: 'Formato que abre en Excel para imprimir o revisar',
+          title: 'Exportar glucosa para el médico',
+          desc: 'CSV compatible con Excel — ${widget.readings.length} registros',
           color: AppColors.amber,
           onTap: () => _shareCSV(context),
+        ),
+        _actionCard(
+          context,
+          icon: '🫁',
+          title: 'Exportar oxigenación para el médico',
+          desc: 'CSV compatible con Excel — ${widget.oxygenReadings.length} registros',
+          color: AppColors.oxygenNormal,
+          onTap: () => _shareOxygenCSV(context),
         ),
         const SizedBox(height: 8),
         _actionCard(
           context,
           icon: '🗑️',
           title: 'Borrar todos los datos',
-          desc: 'Elimina el historial completo. No se puede deshacer.',
+          desc: 'Elimina glucosa y oxigenación. No se puede deshacer.',
           color: AppColors.red,
           border: true,
           onTap: () => _reset(context),
@@ -249,7 +212,7 @@ class _DataScreenState extends State<DataScreen> {
       Card(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
-          side: border ? BorderSide(color: AppColors.redBg, width: 1.5) : BorderSide.none,
+          side: border ? const BorderSide(color: AppColors.redBg, width: 1.5) : BorderSide.none,
         ),
         child: InkWell(
           onTap: onTap,
@@ -270,16 +233,16 @@ class _DataScreenState extends State<DataScreen> {
                               fontSize: 14,
                               color: border ? color : AppColors.navy)),
                       const SizedBox(height: 2),
-                      Text(desc,
-                          style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+                      Text(desc, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
                     ],
                   ),
                 ),
                 loading
                     ? const SizedBox(
-                        width: 20, height: 20,
+                        width: 20,
+                        height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2))
-                    : Icon(Icons.chevron_right, color: AppColors.muted),
+                    : const Icon(Icons.chevron_right, color: AppColors.muted),
               ],
             ),
           ),

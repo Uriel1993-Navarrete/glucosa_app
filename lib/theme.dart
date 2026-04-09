@@ -15,7 +15,17 @@ class AppColors {
   static const bg = Color(0xFFF0F5F9);
   static const muted = Color(0xFF7A9AAA);
   static const border = Color(0xFFDDE8EE);
+  // SpO2
+  static const oxygenNormal = Color(0xFF1565C0);
+  static const oxygenNormalBg = Color(0xFFE3F0FF);
+  static const oxygenLow = Color(0xFFF57F17);
+  static const oxygenLowBg = Color(0xFFFFF3E0);
+  static const oxygenCritical = Color(0xFFC62828);
+  static const oxygenCriticalBg = Color(0xFFFDE8E6);
 }
+
+const kSpo2NormalMin = 95;
+const kSpo2LowMin = 90;
 
 const kMoments = ['Ayuno', 'Antes comida', 'Después comida', 'Noche'];
 const kMomentIcons = {
