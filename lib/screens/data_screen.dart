@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/reading.dart';
 import '../models/oxygen_reading.dart';
+import '../models/blood_pressure_reading.dart';
+import '../models/heart_rate_reading.dart';
 import '../services/storage_service.dart';
 import '../services/supabase_service.dart';
 import '../theme.dart';
@@ -9,12 +11,16 @@ import '../theme.dart';
 class DataScreen extends StatefulWidget {
   final List<Reading> readings;
   final List<OxygenReading> oxygenReadings;
+  final List<BloodPressureReading> bpReadings;
+  final List<HeartRateReading> hrReadings;
   final VoidCallback onChanged;
   final String currentPatient;
   const DataScreen({
     super.key,
     required this.readings,
     required this.oxygenReadings,
+    required this.bpReadings,
+    required this.hrReadings,
     required this.onChanged,
     required this.currentPatient,
   });
@@ -58,6 +64,38 @@ class _DataScreenState extends State<DataScreen> {
     }
   }
 
+  Future<void> _shareBPCSV(BuildContext context) async {
+    if (widget.bpReadings.isEmpty) {
+      _snack(context, 'No hay datos de presión arterial que exportar');
+      return;
+    }
+    try {
+      final storage = await StorageService.getInstance();
+      final path = await storage.exportBPCsvPath(widget.bpReadings);
+      await Share.shareXFiles([XFile(path)],
+          text: 'Historial de presión arterial (Excel/CSV)',
+          subject: 'Historial Presión CSV');
+    } catch (e) {
+      _snack(context, 'Error: $e');
+    }
+  }
+
+  Future<void> _shareHRCSV(BuildContext context) async {
+    if (widget.hrReadings.isEmpty) {
+      _snack(context, 'No hay datos de pulso que exportar');
+      return;
+    }
+    try {
+      final storage = await StorageService.getInstance();
+      final path = await storage.exportHRCsvPath(widget.hrReadings);
+      await Share.shareXFiles([XFile(path)],
+          text: 'Historial de pulso (Excel/CSV)',
+          subject: 'Historial Pulso CSV');
+    } catch (e) {
+      _snack(context, 'Error: $e');
+    }
+  }
+
   Future<void> _syncNow(BuildContext context) async {
     setState(() => _syncing = true);
     try {
@@ -70,6 +108,14 @@ class _DataScreenState extends State<DataScreen> {
       await SupabaseService().syncOxygenToRemote(widget.oxygenReadings);
       final mergedOxygen = await SupabaseService().fetchAndMergeOxygen(widget.oxygenReadings);
       await storage.saveOxygenReadings(mergedOxygen);
+      // Presión arterial
+      await SupabaseService().syncBPToRemote(widget.bpReadings);
+      final mergedBP = await SupabaseService().fetchAndMergeBP(widget.bpReadings);
+      await storage.saveBPReadings(mergedBP);
+      // Pulso
+      await SupabaseService().syncHRToRemote(widget.hrReadings);
+      final mergedHR = await SupabaseService().fetchAndMergeHR(widget.hrReadings);
+      await storage.saveHRReadings(mergedHR);
       await storage.markSyncNow();
       widget.onChanged();
       if (mounted) _snack(context, '✓ Sincronizado con la nube');
@@ -87,7 +133,7 @@ class _DataScreenState extends State<DataScreen> {
       builder: (_) => AlertDialog(
         title: const Text('¿Borrar todo el historial?'),
         content: const Text(
-            'Esta acción eliminará todos los registros (glucosa y oxigenación) permanentemente. No se puede deshacer.'),
+            'Esta acción eliminará todos los registros (glucosa, oxigenación, presión arterial y pulso) permanentemente. No se puede deshacer.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -144,13 +190,20 @@ class _DataScreenState extends State<DataScreen> {
                 style: TextStyle(fontSize: 12, color: AppColors.teal, height: 1.5),
               ),
               const SizedBox(height: 6),
-              Row(
+              Wrap(
+                spacing: 12,
+                runSpacing: 4,
                 children: [
                   Text('🩸 ${widget.readings.length} glucosa',
                       style: const TextStyle(
                           fontWeight: FontWeight.w700, color: AppColors.teal, fontSize: 12)),
-                  const SizedBox(width: 12),
                   Text('🫁 ${widget.oxygenReadings.length} O₂',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, color: AppColors.teal, fontSize: 12)),
+                  Text('💓 ${widget.bpReadings.length} presión',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, color: AppColors.teal, fontSize: 12)),
+                  Text('❤️ ${widget.hrReadings.length} pulso',
                       style: const TextStyle(
                           fontWeight: FontWeight.w700, color: AppColors.teal, fontSize: 12)),
                 ],
@@ -185,12 +238,28 @@ class _DataScreenState extends State<DataScreen> {
           color: AppColors.oxygenNormal,
           onTap: () => _shareOxygenCSV(context),
         ),
+        _actionCard(
+          context,
+          icon: '💓',
+          title: 'Exportar presión arterial para el médico',
+          desc: 'CSV compatible con Excel — ${widget.bpReadings.length} registros',
+          color: AppColors.bpNormal,
+          onTap: () => _shareBPCSV(context),
+        ),
+        _actionCard(
+          context,
+          icon: '❤️',
+          title: 'Exportar pulso para el médico',
+          desc: 'CSV compatible con Excel — ${widget.hrReadings.length} registros',
+          color: AppColors.hrNormal,
+          onTap: () => _shareHRCSV(context),
+        ),
         const SizedBox(height: 8),
         _actionCard(
           context,
           icon: '🗑️',
           title: 'Borrar todos los datos',
-          desc: 'Elimina glucosa y oxigenación. No se puede deshacer.',
+          desc: 'Elimina todos los registros. No se puede deshacer.',
           color: AppColors.red,
           border: true,
           onTap: () => _reset(context),

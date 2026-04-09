@@ -4,12 +4,24 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import '../models/reading.dart';
 import '../models/oxygen_reading.dart';
+import '../models/metric_type.dart';
+import '../models/blood_pressure_reading.dart';
+import '../models/heart_rate_reading.dart';
 import '../theme.dart';
 
 class ChartScreen extends StatefulWidget {
   final List<Reading> readings;
   final List<OxygenReading> oxygenReadings;
-  const ChartScreen({super.key, required this.readings, required this.oxygenReadings});
+  final List<BloodPressureReading> bpReadings;
+  final List<HeartRateReading> hrReadings;
+
+  const ChartScreen({
+    super.key,
+    required this.readings,
+    required this.oxygenReadings,
+    required this.bpReadings,
+    required this.hrReadings,
+  });
 
   @override
   State<ChartScreen> createState() => _ChartScreenState();
@@ -17,7 +29,7 @@ class ChartScreen extends StatefulWidget {
 
 class _ChartScreenState extends State<ChartScreen> {
   late DateTime _weekStart;
-  bool _isOxygen = false;
+  MetricType _selectedMetric = MetricType.glucose;
 
   @override
   void initState() {
@@ -31,7 +43,9 @@ class _ChartScreenState extends State<ChartScreen> {
 
   // ── Glucosa ───────────────────────────────────────────
   List<Reading> get _weekReadings =>
-      widget.readings.where((r) => r.timestamp.isAfter(_weekStart) && r.timestamp.isBefore(_weekEnd)).toList();
+      widget.readings
+          .where((r) => r.timestamp.isAfter(_weekStart) && r.timestamp.isBefore(_weekEnd))
+          .toList();
 
   double? _avgForDay(int dayOffset) {
     final day = _weekStart.add(Duration(days: dayOffset));
@@ -57,7 +71,9 @@ class _ChartScreenState extends State<ChartScreen> {
 
   // ── Oxígeno ───────────────────────────────────────────
   List<OxygenReading> get _weekOxygenReadings =>
-      widget.oxygenReadings.where((r) => r.timestamp.isAfter(_weekStart) && r.timestamp.isBefore(_weekEnd)).toList();
+      widget.oxygenReadings
+          .where((r) => r.timestamp.isAfter(_weekStart) && r.timestamp.isBefore(_weekEnd))
+          .toList();
 
   double? _avgOxygenForDay(int dayOffset) {
     final day = _weekStart.add(Duration(days: dayOffset));
@@ -78,67 +94,110 @@ class _ChartScreenState extends State<ChartScreen> {
     return AppColors.oxygenNormal;
   }
 
+  // ── Presión Arterial ──────────────────────────────────
+  List<BloodPressureReading> get _weekBPReadings =>
+      widget.bpReadings
+          .where((r) => r.timestamp.isAfter(_weekStart) && r.timestamp.isBefore(_weekEnd))
+          .toList();
+
+  (double?, double?) _avgBPForDay(int dayOffset) {
+    final day = _weekStart.add(Duration(days: dayOffset));
+    final dayReadings = widget.bpReadings.where((r) =>
+        r.timestamp.year == day.year &&
+        r.timestamp.month == day.month &&
+        r.timestamp.day == day.day).toList();
+    if (dayReadings.isEmpty) return (null, null);
+    final avgSys = dayReadings.map((r) => r.systolic.toDouble()).reduce((a, b) => a + b) /
+        dayReadings.length;
+    final avgDia = dayReadings.map((r) => r.diastolic.toDouble()).reduce((a, b) => a + b) /
+        dayReadings.length;
+    return (avgSys, avgDia);
+  }
+
+  // ── Pulso ─────────────────────────────────────────────
+  List<HeartRateReading> get _weekHRReadings =>
+      widget.hrReadings
+          .where((r) => r.timestamp.isAfter(_weekStart) && r.timestamp.isBefore(_weekEnd))
+          .toList();
+
+  double? _avgHRForDay(int dayOffset) {
+    final day = _weekStart.add(Duration(days: dayOffset));
+    final vals = widget.hrReadings
+        .where((r) =>
+            r.timestamp.year == day.year &&
+            r.timestamp.month == day.month &&
+            r.timestamp.day == day.day)
+        .map((r) => r.bpmValue.toDouble())
+        .toList();
+    if (vals.isEmpty) return null;
+    return vals.reduce((a, b) => a + b) / vals.length;
+  }
+
+  // ── Build ─────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
-        // Toggle Glucosa / O₂
+        // Selector de 4 métricas
         Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: Row(
-            children: [
-              Expanded(
+            children: MetricType.values.asMap().entries.map((entry) {
+              final index = entry.key;
+              final metric = entry.value;
+              final isSelected = _selectedMetric == metric;
+              final isFirst = index == 0;
+              final isLast = index == MetricType.values.length - 1;
+
+              BorderRadius borderRadius;
+              if (isFirst) {
+                borderRadius = const BorderRadius.horizontal(left: Radius.circular(10));
+              } else if (isLast) {
+                borderRadius = const BorderRadius.horizontal(right: Radius.circular(10));
+              } else {
+                borderRadius = BorderRadius.zero;
+              }
+
+              return Expanded(
                 child: GestureDetector(
-                  onTap: () => setState(() => _isOxygen = false),
+                  onTap: () => setState(() => _selectedMetric = metric),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     decoration: BoxDecoration(
-                      color: !_isOxygen ? AppColors.teal : AppColors.bg,
-                      borderRadius: const BorderRadius.horizontal(left: Radius.circular(10)),
-                      border: Border.all(color: !_isOxygen ? AppColors.teal : AppColors.border),
+                      color: isSelected ? metric.color : AppColors.bg,
+                      borderRadius: borderRadius,
+                      border: Border.all(
+                        color: isSelected ? metric.color : AppColors.border,
+                      ),
                     ),
                     child: Center(
-                      child: Text('🩸  Glucosa',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 13,
-                            color: !_isOxygen ? Colors.white : AppColors.muted,
-                          )),
+                      child: Text(
+                        '${metric.emoji}  ${metric.label}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                          color: isSelected ? Colors.white : AppColors.muted,
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Expanded(
-                child: GestureDetector(
-                  onTap: () => setState(() => _isOxygen = true),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    decoration: BoxDecoration(
-                      color: _isOxygen ? AppColors.oxygenNormal : AppColors.bg,
-                      borderRadius: const BorderRadius.horizontal(right: Radius.circular(10)),
-                      border: Border.all(color: _isOxygen ? AppColors.oxygenNormal : AppColors.border),
-                    ),
-                    child: Center(
-                      child: Text('🫁  O₂',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 13,
-                            color: _isOxygen ? Colors.white : AppColors.muted,
-                          )),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+              );
+            }).toList(),
           ),
         ),
 
-        if (_isOxygen) ..._buildOxygenChart() else ..._buildGlucoseChart(),
+        if (_selectedMetric == MetricType.glucose) ..._buildGlucoseChart()
+        else if (_selectedMetric == MetricType.oxygen) ..._buildOxygenChart()
+        else if (_selectedMetric == MetricType.bloodPressure) ..._buildBPChart()
+        else ..._buildHRChart(),
       ],
     );
   }
 
+  // ── Gráfica Glucosa ───────────────────────────────────
   List<Widget> _buildGlucoseChart() {
     final weekR = _weekReadings;
     final allVals = weekR.map((r) => r.glucoseValue).toList();
@@ -229,6 +288,7 @@ class _ChartScreenState extends State<ChartScreen> {
     ];
   }
 
+  // ── Gráfica Oxígeno ───────────────────────────────────
   List<Widget> _buildOxygenChart() {
     final weekR = _weekOxygenReadings;
     final allVals = weekR.map((r) => r.spo2Value).toList();
@@ -321,6 +381,265 @@ class _ChartScreenState extends State<ChartScreen> {
           Expanded(child: _statCard('${weekR.length}', 'Registros', AppColors.oxygenNormal)),
           const SizedBox(width: 8),
           Expanded(child: _statCard('$pct%', '≥95% global', AppColors.oxygenNormal)),
+        ],
+      ),
+    ];
+  }
+
+  // ── Gráfica Presión Arterial ──────────────────────────
+  List<Widget> _buildBPChart() {
+    final weekR = _weekBPReadings;
+
+    final sysSpots = <FlSpot>[];
+    final diaSpots = <FlSpot>[];
+    for (int i = 0; i < 7; i++) {
+      final (sys, dia) = _avgBPForDay(i);
+      if (sys != null && dia != null) {
+        sysSpots.add(FlSpot(i.toDouble(), sys));
+        diaSpots.add(FlSpot(i.toDouble(), dia));
+      }
+    }
+
+    // Stats
+    final allSys = weekR.map((r) => r.systolic).toList();
+    final allDia = weekR.map((r) => r.diastolic).toList();
+    final avgSys = allSys.isEmpty
+        ? null
+        : (allSys.reduce((a, b) => a + b) / allSys.length).round();
+    final avgDia = allDia.isEmpty
+        ? null
+        : (allDia.reduce((a, b) => a + b) / allDia.length).round();
+    final inRange = widget.bpReadings
+        .where((r) => r.systolic < 120 && r.diastolic < 80)
+        .length;
+    final pct = widget.bpReadings.isEmpty
+        ? 0
+        : (inRange / widget.bpReadings.length * 100).round();
+
+    final dayLabels = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+    final hasData = sysSpots.isNotEmpty || diaSpots.isNotEmpty;
+
+    return [
+      _weekNav(),
+      const SizedBox(height: 10),
+      Wrap(
+        spacing: 8,
+        children: [
+          _legendItem(AppColors.bpNormal, 'Normal <120/80'),
+          _legendItem(AppColors.bpElevated, 'Elevada'),
+          _legendItem(AppColors.bpStage1, 'Grado 1'),
+          _legendItem(AppColors.bpStage2, 'Grado 2'),
+        ],
+      ),
+      const SizedBox(height: 6),
+      Wrap(
+        spacing: 12,
+        children: [
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(width: 20, height: 3, color: AppColors.bpStage2),
+            const SizedBox(width: 4),
+            const Text('Sistólica', style: TextStyle(fontSize: 11, color: AppColors.muted)),
+          ]),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(width: 20, height: 3, color: AppColors.bpStage1),
+            const SizedBox(width: 4),
+            const Text('Diastólica', style: TextStyle(fontSize: 11, color: AppColors.muted)),
+          ]),
+        ],
+      ),
+      const SizedBox(height: 10),
+      _chartContainer(
+        title: '📈 Presión arterial diaria promedio (mmHg)',
+        child: !hasData
+            ? const Center(child: Text('Sin datos esta semana', style: TextStyle(color: AppColors.muted)))
+            : LineChart(LineChartData(
+                minX: 0, maxX: 6,
+                minY: 40, maxY: 200,
+                gridData: FlGridData(
+                  show: true,
+                  drawHorizontalLine: true,
+                  drawVerticalLine: false,
+                  horizontalInterval: 20,
+                  getDrawingHorizontalLine: (_) => const FlLine(color: AppColors.border, strokeWidth: 1),
+                ),
+                borderData: FlBorderData(show: false),
+                titlesData: _titlesData(dayLabels, 20),
+                rangeAnnotations: RangeAnnotations(
+                  horizontalRangeAnnotations: [
+                    HorizontalRangeAnnotation(
+                        y1: 90, y2: 120,
+                        color: AppColors.bpNormal.withValues(alpha: .07)),
+                  ],
+                ),
+                extraLinesData: ExtraLinesData(horizontalLines: [
+                  HorizontalLine(
+                      y: 120,
+                      color: AppColors.bpStage2.withValues(alpha: .45),
+                      strokeWidth: 1,
+                      dashArray: [4, 4]),
+                  HorizontalLine(
+                      y: 80,
+                      color: AppColors.bpStage1.withValues(alpha: .45),
+                      strokeWidth: 1,
+                      dashArray: [4, 4]),
+                ]),
+                lineTouchData: const LineTouchData(enabled: false),
+                lineBarsData: [
+                  // Sistólica
+                  LineChartBarData(
+                    spots: sysSpots,
+                    isCurved: true,
+                    curveSmoothness: 0.3,
+                    color: AppColors.bpStage2,
+                    barWidth: 2.5,
+                    dotData: FlDotData(
+                      show: true,
+                      getDotPainter: (spot, _, __, ___) => _LabeledDotPainter(
+                        color: AppColors.bpStage2,
+                        value: spot.y,
+                      ),
+                    ),
+                    belowBarData: BarAreaData(show: false),
+                  ),
+                  // Diastólica
+                  LineChartBarData(
+                    spots: diaSpots,
+                    isCurved: true,
+                    curveSmoothness: 0.3,
+                    color: AppColors.bpStage1,
+                    barWidth: 2.5,
+                    dotData: FlDotData(
+                      show: true,
+                      getDotPainter: (spot, _, __, ___) => _LabeledDotPainter(
+                        color: AppColors.bpStage1,
+                        value: spot.y,
+                      ),
+                    ),
+                    belowBarData: BarAreaData(show: false),
+                  ),
+                ],
+              )),
+      ),
+      const SizedBox(height: 10),
+      Row(
+        children: [
+          Expanded(
+              child: _statCard(
+                  avgSys != null ? '$avgSys mmHg' : '—',
+                  'Prom. sistólica',
+                  AppColors.bpStage2)),
+          const SizedBox(width: 8),
+          Expanded(
+              child: _statCard(
+                  avgDia != null ? '$avgDia mmHg' : '—',
+                  'Prom. diastólica',
+                  AppColors.bpStage1)),
+          const SizedBox(width: 8),
+          Expanded(
+              child: _statCard('$pct%', '% en rango', AppColors.bpNormal)),
+        ],
+      ),
+    ];
+  }
+
+  // ── Gráfica Pulso ─────────────────────────────────────
+  List<Widget> _buildHRChart() {
+    final weekR = _weekHRReadings;
+    final allVals = weekR.map((r) => r.bpmValue).toList();
+    final avg = allVals.isEmpty ? null : (allVals.reduce((a, b) => a + b) / allVals.length).round();
+    final inRange = widget.hrReadings
+        .where((r) => r.bpmValue >= 60 && r.bpmValue <= 100)
+        .length;
+    final pct = widget.hrReadings.isEmpty
+        ? 0
+        : (inRange / widget.hrReadings.length * 100).round();
+
+    final spots = <FlSpot>[];
+    for (int i = 0; i < 7; i++) {
+      final v = _avgHRForDay(i);
+      if (v != null) {
+        spots.add(FlSpot(i.toDouble(), v));
+      }
+    }
+
+    final dayLabels = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+
+    return [
+      _weekNav(),
+      const SizedBox(height: 10),
+      Wrap(
+        spacing: 8,
+        children: [
+          _legendItem(AppColors.hrAbnormal, 'Bradicardia <60'),
+          _legendItem(AppColors.hrNormal, 'Normal 60-100'),
+          _legendItem(AppColors.hrTachy, 'Taquicardia >100'),
+        ],
+      ),
+      const SizedBox(height: 10),
+      _chartContainer(
+        title: '📈 Pulso diario promedio (bpm)',
+        child: spots.isEmpty
+            ? const Center(child: Text('Sin datos esta semana', style: TextStyle(color: AppColors.muted)))
+            : LineChart(LineChartData(
+                minX: 0, maxX: 6,
+                minY: 40, maxY: 160,
+                gridData: FlGridData(
+                  show: true,
+                  drawHorizontalLine: true,
+                  drawVerticalLine: false,
+                  horizontalInterval: 20,
+                  getDrawingHorizontalLine: (_) => const FlLine(color: AppColors.border, strokeWidth: 1),
+                ),
+                borderData: FlBorderData(show: false),
+                titlesData: _titlesData(dayLabels, 20),
+                rangeAnnotations: RangeAnnotations(
+                  horizontalRangeAnnotations: [
+                    HorizontalRangeAnnotation(
+                        y1: 60, y2: 100,
+                        color: AppColors.hrNormal.withValues(alpha: .07)),
+                  ],
+                ),
+                extraLinesData: ExtraLinesData(horizontalLines: [
+                  HorizontalLine(
+                      y: 60,
+                      color: AppColors.hrNormal.withValues(alpha: .4),
+                      strokeWidth: 1,
+                      dashArray: [4, 4]),
+                  HorizontalLine(
+                      y: 100,
+                      color: AppColors.hrNormal.withValues(alpha: .4),
+                      strokeWidth: 1,
+                      dashArray: [4, 4]),
+                ]),
+                lineTouchData: const LineTouchData(enabled: false),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: spots,
+                    isCurved: true,
+                    curveSmoothness: 0.3,
+                    color: AppColors.hrNormal,
+                    barWidth: 2.5,
+                    dotData: FlDotData(
+                      show: true,
+                      getDotPainter: (spot, _, __, ___) => _LabeledDotPainter(
+                        color: AppColors.hrNormal,
+                        value: spot.y,
+                      ),
+                    ),
+                    belowBarData: BarAreaData(
+                        show: true, color: AppColors.hrNormal.withValues(alpha: .07)),
+                  ),
+                ],
+              )),
+      ),
+      const SizedBox(height: 10),
+      Row(
+        children: [
+          Expanded(child: _statCard(avg != null ? '$avg bpm' : '—', 'Promedio', AppColors.hrNormal)),
+          const SizedBox(width: 8),
+          Expanded(child: _statCard('${weekR.length}', 'Registros semana', AppColors.hrNormal)),
+          const SizedBox(width: 8),
+          Expanded(child: _statCard('$pct%', '% en rango', AppColors.hrNormal)),
         ],
       ),
     ];

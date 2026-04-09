@@ -2,17 +2,25 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/reading.dart';
 import '../models/oxygen_reading.dart';
+import '../models/blood_pressure_reading.dart';
+import '../models/heart_rate_reading.dart';
+import '../models/metric_type.dart';
 import '../services/storage_service.dart';
 import '../theme.dart';
 
 class HistoryScreen extends StatefulWidget {
   final List<Reading> readings;
   final List<OxygenReading> oxygenReadings;
+  final List<BloodPressureReading> bpReadings;
+  final List<HeartRateReading> hrReadings;
   final VoidCallback onChanged;
+
   const HistoryScreen({
     super.key,
     required this.readings,
     required this.oxygenReadings,
+    required this.bpReadings,
+    required this.hrReadings,
     required this.onChanged,
   });
 
@@ -24,7 +32,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   DateTime? _fromDate;
   DateTime? _toDate;
   String _statusFilter = 'todos';
-  bool _isOxygen = false;
+  MetricType _selectedMetric = MetricType.glucose;
 
   // ── Glucosa ──────────────────────────────────────────
   List<Reading> get _filtered {
@@ -82,7 +90,69 @@ class _HistoryScreenState extends State<HistoryScreen> {
         result.entries.toList()..sort((a, b) => b.key.compareTo(a.key)));
   }
 
-  // ── Helpers ───────────────────────────────────────────
+  // ── Presión arterial ──────────────────────────────────
+  List<BloodPressureReading> get _filteredBP {
+    return widget.bpReadings.where((r) {
+      if (_fromDate != null) {
+        final from = DateTime(_fromDate!.year, _fromDate!.month, _fromDate!.day);
+        if (r.timestamp.isBefore(from)) return false;
+      }
+      if (_toDate != null) {
+        final to = DateTime(_toDate!.year, _toDate!.month, _toDate!.day, 23, 59, 59);
+        if (r.timestamp.isAfter(to)) return false;
+      }
+      switch (_statusFilter) {
+        case 'normal':   return r.status == BPStatus.normal;
+        case 'elevated': return r.status == BPStatus.elevated;
+        case 'stage1':   return r.status == BPStatus.stage1;
+        case 'stage2':   return r.status == BPStatus.stage2;
+        case 'crisis':   return r.status == BPStatus.crisis;
+        default: return true;
+      }
+    }).toList();
+  }
+
+  Map<String, List<BloodPressureReading>> get _groupedBP {
+    final result = <String, List<BloodPressureReading>>{};
+    for (final r in _filteredBP) {
+      final key = DateFormat('yyyy-MM-dd').format(r.timestamp);
+      result.putIfAbsent(key, () => []).add(r);
+    }
+    return Map.fromEntries(
+        result.entries.toList()..sort((a, b) => b.key.compareTo(a.key)));
+  }
+
+  // ── Pulso / FC ────────────────────────────────────────
+  List<HeartRateReading> get _filteredHR {
+    return widget.hrReadings.where((r) {
+      if (_fromDate != null) {
+        final from = DateTime(_fromDate!.year, _fromDate!.month, _fromDate!.day);
+        if (r.timestamp.isBefore(from)) return false;
+      }
+      if (_toDate != null) {
+        final to = DateTime(_toDate!.year, _toDate!.month, _toDate!.day, 23, 59, 59);
+        if (r.timestamp.isAfter(to)) return false;
+      }
+      switch (_statusFilter) {
+        case 'bradycardia':  return r.status == HRStatus.bradycardia;
+        case 'normal':       return r.status == HRStatus.normal;
+        case 'tachycardia':  return r.status == HRStatus.tachycardia;
+        default: return true;
+      }
+    }).toList();
+  }
+
+  Map<String, List<HeartRateReading>> get _groupedHR {
+    final result = <String, List<HeartRateReading>>{};
+    for (final r in _filteredHR) {
+      final key = DateFormat('yyyy-MM-dd').format(r.timestamp);
+      result.putIfAbsent(key, () => []).add(r);
+    }
+    return Map.fromEntries(
+        result.entries.toList()..sort((a, b) => b.key.compareTo(a.key)));
+  }
+
+  // ── Helpers de fecha ─────────────────────────────────
   Future<void> _pickFromDate() async {
     final d = await showDatePicker(
       context: context,
@@ -103,6 +173,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     if (d != null) setState(() => _toDate = d);
   }
 
+  // ── Borrado ───────────────────────────────────────────
   Future<void> _deleteGlucose(Reading r) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -147,24 +218,72 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
-  Color _statusColor(GlucoseStatus s) {
+  Future<void> _deleteBP(BloodPressureReading r) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('¿Eliminar registro?'),
+        content: Text(
+            'Presión: ${r.systolic}/${r.diastolic} mmHg — ${DateFormat('dd/MM/yyyy HH:mm').format(r.timestamp)}'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar', style: TextStyle(color: AppColors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      final storage = await StorageService.getInstance();
+      await storage.deleteBPReading(r.id, widget.bpReadings);
+      widget.onChanged();
+    }
+  }
+
+  Future<void> _deleteHR(HeartRateReading r) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('¿Eliminar registro?'),
+        content: Text(
+            'Pulso: ${r.bpmValue} bpm — ${DateFormat('dd/MM/yyyy HH:mm').format(r.timestamp)}'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar', style: TextStyle(color: AppColors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      final storage = await StorageService.getInstance();
+      await storage.deleteHRReading(r.id, widget.hrReadings);
+      widget.onChanged();
+    }
+  }
+
+  // ── Colores glucosa ───────────────────────────────────
+  Color _glucoseColor(GlucoseStatus s) {
     switch (s) {
-      case GlucoseStatus.low: return AppColors.red;
-      case GlucoseStatus.normal: return AppColors.green;
-      case GlucoseStatus.high: return AppColors.yellow;
+      case GlucoseStatus.low:     return AppColors.red;
+      case GlucoseStatus.normal:  return AppColors.green;
+      case GlucoseStatus.high:    return AppColors.yellow;
       case GlucoseStatus.veryHigh: return AppColors.red;
     }
   }
 
-  Color _statusBg(GlucoseStatus s) {
+  Color _glucoseBg(GlucoseStatus s) {
     switch (s) {
-      case GlucoseStatus.low: return AppColors.redBg;
-      case GlucoseStatus.normal: return AppColors.greenBg;
-      case GlucoseStatus.high: return AppColors.yellowBg;
+      case GlucoseStatus.low:     return AppColors.redBg;
+      case GlucoseStatus.normal:  return AppColors.greenBg;
+      case GlucoseStatus.high:    return AppColors.yellowBg;
       case GlucoseStatus.veryHigh: return AppColors.redBg;
     }
   }
 
+  // ── Label día ─────────────────────────────────────────
   String _dayLabel(String key) {
     final now = DateTime.now();
     final today = DateFormat('yyyy-MM-dd').format(now);
@@ -175,71 +294,68 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return DateFormat('EEEE d MMM', 'es').format(d);
   }
 
+  // ── build ─────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final hasFilters = _fromDate != null || _toDate != null || _statusFilter != 'todos';
+    final hasDateFilter = _fromDate != null || _toDate != null;
+    final hasStatusFilter = _statusFilter != 'todos';
+    final hasFilters = hasDateFilter || hasStatusFilter;
 
     return Column(
       children: [
-        // Toggle Glucosa / O₂
+        // Selector de 4 métricas
         Container(
           color: Colors.white,
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
           child: Row(
-            children: [
-              Expanded(
+            children: MetricType.values.map((metric) {
+              final isSelected = _selectedMetric == metric;
+              final isFirst = metric == MetricType.values.first;
+              final isLast = metric == MetricType.values.last;
+              return Expanded(
                 child: GestureDetector(
-                  onTap: () => setState(() => _isOxygen = false),
+                  onTap: () => setState(() {
+                    _selectedMetric = metric;
+                    _statusFilter = 'todos';
+                  }),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     decoration: BoxDecoration(
-                      color: !_isOxygen ? AppColors.teal : AppColors.bg,
-                      borderRadius: const BorderRadius.horizontal(left: Radius.circular(8)),
-                      border: Border.all(color: !_isOxygen ? AppColors.teal : AppColors.border),
+                      color: isSelected ? metric.color : AppColors.bg,
+                      borderRadius: BorderRadius.horizontal(
+                        left: isFirst ? const Radius.circular(8) : Radius.zero,
+                        right: isLast ? const Radius.circular(8) : Radius.zero,
+                      ),
+                      border: Border.all(
+                        color: isSelected ? metric.color : AppColors.border,
+                      ),
                     ),
                     child: Center(
-                      child: Text('🩸  Glucosa',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 12,
-                            color: !_isOxygen ? Colors.white : AppColors.muted,
-                          )),
+                      child: Text(
+                        '${metric.emoji}  ${metric.label}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 11,
+                          color: isSelected ? Colors.white : AppColors.muted,
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Expanded(
-                child: GestureDetector(
-                  onTap: () => setState(() => _isOxygen = true),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    decoration: BoxDecoration(
-                      color: _isOxygen ? AppColors.oxygenNormal : AppColors.bg,
-                      borderRadius: const BorderRadius.horizontal(right: Radius.circular(8)),
-                      border: Border.all(color: _isOxygen ? AppColors.oxygenNormal : AppColors.border),
-                    ),
-                    child: Center(
-                      child: Text('🫁  O₂',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 12,
-                            color: _isOxygen ? Colors.white : AppColors.muted,
-                          )),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+              );
+            }).toList(),
           ),
         ),
 
-        // Filtros de fecha
+        // Filtros
         Container(
           color: Colors.white,
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Filtros de fecha
               Row(
                 children: [
                   Expanded(
@@ -261,7 +377,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   ),
                 ],
               ),
-              if (!_isOxygen) ...[
+
+              // Filtro de estado según métrica activa
+              if (_selectedMetric == MetricType.glucose) ...[
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -296,12 +414,86 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     ],
                   ],
                 ),
-              ] else if (_fromDate != null || _toDate != null) ...[
+              ] else if (_selectedMetric == MetricType.bloodPressure) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: _statusFilter,
+                        decoration: const InputDecoration(
+                          labelText: 'Estado de presión',
+                          prefixIcon: Icon(Icons.filter_list_outlined, size: 18, color: AppColors.muted),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'todos', child: Text('Todos los registros')),
+                          DropdownMenuItem(value: 'normal', child: Text('✓ Normal')),
+                          DropdownMenuItem(value: 'elevated', child: Text('⬆ Elevada')),
+                          DropdownMenuItem(value: 'stage1', child: Text('⚠ Grado 1')),
+                          DropdownMenuItem(value: 'stage2', child: Text('🔴 Grado 2')),
+                          DropdownMenuItem(value: 'crisis', child: Text('🚨 Crisis')),
+                        ],
+                        onChanged: (v) => setState(() => _statusFilter = v ?? 'todos'),
+                      ),
+                    ),
+                    if (hasFilters) ...[
+                      const SizedBox(width: 8),
+                      TextButton(
+                        onPressed: () => setState(() {
+                          _fromDate = null;
+                          _toDate = null;
+                          _statusFilter = 'todos';
+                        }),
+                        child: const Text('Limpiar', style: TextStyle(color: AppColors.teal, fontSize: 12)),
+                      ),
+                    ],
+                  ],
+                ),
+              ] else if (_selectedMetric == MetricType.heartRate) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: _statusFilter,
+                        decoration: const InputDecoration(
+                          labelText: 'Estado de pulso',
+                          prefixIcon: Icon(Icons.filter_list_outlined, size: 18, color: AppColors.muted),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'todos', child: Text('Todos los registros')),
+                          DropdownMenuItem(value: 'bradycardia', child: Text('⬇ Bradicardia')),
+                          DropdownMenuItem(value: 'normal', child: Text('✓ Normal')),
+                          DropdownMenuItem(value: 'tachycardia', child: Text('⬆ Taquicardia')),
+                        ],
+                        onChanged: (v) => setState(() => _statusFilter = v ?? 'todos'),
+                      ),
+                    ),
+                    if (hasFilters) ...[
+                      const SizedBox(width: 8),
+                      TextButton(
+                        onPressed: () => setState(() {
+                          _fromDate = null;
+                          _toDate = null;
+                          _statusFilter = 'todos';
+                        }),
+                        child: const Text('Limpiar', style: TextStyle(color: AppColors.teal, fontSize: 12)),
+                      ),
+                    ],
+                  ],
+                ),
+              ] else if (hasDateFilter) ...[
+                // Oxígeno: solo muestra limpiar si hay filtros de fecha
                 const SizedBox(height: 4),
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
-                    onPressed: () => setState(() { _fromDate = null; _toDate = null; }),
+                    onPressed: () => setState(() {
+                      _fromDate = null;
+                      _toDate = null;
+                    }),
                     child: const Text('Limpiar', style: TextStyle(color: AppColors.teal, fontSize: 12)),
                   ),
                 ),
@@ -310,13 +502,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
           ),
         ),
 
+        // Lista
         Expanded(
-          child: _isOxygen ? _buildOxygenList() : _buildGlucoseList(),
+          child: switch (_selectedMetric) {
+            MetricType.glucose      => _buildGlucoseList(),
+            MetricType.oxygen       => _buildOxygenList(),
+            MetricType.bloodPressure => _buildBPList(),
+            MetricType.heartRate    => _buildHRList(),
+          },
         ),
       ],
     );
   }
 
+  // ── Listas ────────────────────────────────────────────
   Widget _buildGlucoseList() {
     if (_filtered.isEmpty) {
       return const Center(
@@ -338,16 +537,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 6, bottom: 8),
-              child: Text(
-                _dayLabel(entry.key).toUpperCase(),
-                style: const TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w700,
-                  color: AppColors.muted, letterSpacing: .5,
-                ),
-              ),
-            ),
+            _dayHeader(entry.key),
             ...entry.value.map((r) => _readingCard(r)),
           ],
         );
@@ -376,20 +566,85 @@ class _HistoryScreenState extends State<HistoryScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 6, bottom: 8),
-              child: Text(
-                _dayLabel(entry.key).toUpperCase(),
-                style: const TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w700,
-                  color: AppColors.muted, letterSpacing: .5,
-                ),
-              ),
-            ),
+            _dayHeader(entry.key),
             ...entry.value.map((r) => _oxygenCard(r)),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildBPList() {
+    if (_filteredBP.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('💓', style: TextStyle(fontSize: 40)),
+            SizedBox(height: 8),
+            Text('Sin registros de presión arterial', style: TextStyle(color: AppColors.muted)),
+          ],
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: _groupedBP.length,
+      itemBuilder: (ctx, i) {
+        final entry = _groupedBP.entries.elementAt(i);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _dayHeader(entry.key),
+            ...entry.value.map((r) => _buildBPCard(r)),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildHRList() {
+    if (_filteredHR.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('❤️', style: TextStyle(fontSize: 40)),
+            SizedBox(height: 8),
+            Text('Sin registros de pulso', style: TextStyle(color: AppColors.muted)),
+          ],
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: _groupedHR.length,
+      itemBuilder: (ctx, i) {
+        final entry = _groupedHR.entries.elementAt(i);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _dayHeader(entry.key),
+            ...entry.value.map((r) => _buildHRCard(r)),
+          ],
+        );
+      },
+    );
+  }
+
+  // ── Widgets reutilizables ─────────────────────────────
+  Widget _dayHeader(String key) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 8),
+      child: Text(
+        _dayLabel(key).toUpperCase(),
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: AppColors.muted,
+          letterSpacing: .5,
+        ),
+      ),
     );
   }
 
@@ -411,17 +666,21 @@ class _HistoryScreenState extends State<HistoryScreen> {
         ),
         child: Row(
           children: [
-            Icon(Icons.calendar_month_outlined, size: 16, color: active ? AppColors.teal : AppColors.muted),
+            Icon(Icons.calendar_month_outlined,
+                size: 16, color: active ? AppColors.teal : AppColors.muted),
             const SizedBox(width: 6),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: TextStyle(fontSize: 10, color: active ? AppColors.teal : AppColors.muted)),
+                  Text(label,
+                      style: TextStyle(
+                          fontSize: 10, color: active ? AppColors.teal : AppColors.muted)),
                   Text(
                     date != null ? DateFormat('d MMM yyyy', 'es').format(date) : 'Seleccionar',
                     style: TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
                       color: active ? AppColors.teal : AppColors.muted,
                     ),
                   ),
@@ -439,6 +698,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
+  // ── Cards ─────────────────────────────────────────────
   Widget _readingCard(Reading r) {
     final timeStr = DateFormat('HH:mm').format(r.timestamp);
     final dateStr = DateFormat('d MMM', 'es').format(r.timestamp);
@@ -446,18 +706,25 @@ class _HistoryScreenState extends State<HistoryScreen> {
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
         leading: Container(
-          width: 54, height: 54,
+          width: 54,
+          height: 54,
           decoration: BoxDecoration(
-            color: _statusBg(r.status),
+            color: _glucoseBg(r.status),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text('${r.glucoseValue}',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: _statusColor(r.status))),
+                  style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      color: _glucoseColor(r.status))),
               Text('mg/dL',
-                  style: TextStyle(fontSize: 9, color: _statusColor(r.status), fontWeight: FontWeight.w600)),
+                  style: TextStyle(
+                      fontSize: 9,
+                      color: _glucoseColor(r.status),
+                      fontWeight: FontWeight.w600)),
             ],
           ),
         ),
@@ -470,13 +737,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 style: const TextStyle(fontSize: 12, color: AppColors.muted)),
             if (r.insulinDose != null)
               Text('💉 ${r.insulinDose}U ${r.insulinType ?? ''}',
-                  style: const TextStyle(fontSize: 12, color: AppColors.amber, fontWeight: FontWeight.w600)),
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.amber, fontWeight: FontWeight.w600)),
             if (r.recordedBy != 'Sin nombre')
-              Text('👤 ${r.recordedBy}', style: const TextStyle(fontSize: 11, color: AppColors.muted)),
+              Text('👤 ${r.recordedBy}',
+                  style: const TextStyle(fontSize: 11, color: AppColors.muted)),
             if (r.note != null)
               Text('📝 ${r.note}',
                   style: const TextStyle(fontSize: 12, color: AppColors.muted),
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
           ],
         ),
         trailing: IconButton(
@@ -500,33 +770,142 @@ class _HistoryScreenState extends State<HistoryScreen> {
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
         leading: Container(
-          width: 54, height: 54,
+          width: 54,
+          height: 54,
           decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(12)),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text('${r.spo2Value}',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: statusColor)),
-              Text('%', style: TextStyle(fontSize: 9, color: statusColor, fontWeight: FontWeight.w600)),
+                  style: TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w700, color: statusColor)),
+              Text('%',
+                  style:
+                      TextStyle(fontSize: 9, color: statusColor, fontWeight: FontWeight.w600)),
             ],
           ),
         ),
-        title: Text(r.status.label, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: statusColor)),
+        title: Text(r.status.label,
+            style: TextStyle(
+                fontWeight: FontWeight.w600, fontSize: 14, color: statusColor)),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('$dateStr · $timeStr', style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+            Text('$dateStr · $timeStr',
+                style: const TextStyle(fontSize: 12, color: AppColors.muted)),
             if (r.recordedBy != 'Sin nombre')
-              Text('👤 ${r.recordedBy}', style: const TextStyle(fontSize: 11, color: AppColors.muted)),
+              Text('👤 ${r.recordedBy}',
+                  style: const TextStyle(fontSize: 11, color: AppColors.muted)),
             if (r.note != null)
               Text('📝 ${r.note}',
                   style: const TextStyle(fontSize: 12, color: AppColors.muted),
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
           ],
         ),
         trailing: IconButton(
           icon: const Icon(Icons.delete_outline, color: AppColors.muted, size: 20),
           onPressed: () => _deleteOxygen(r),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBPCard(BloodPressureReading r) {
+    final timeStr = DateFormat('HH:mm').format(r.timestamp);
+    final dateStr = DateFormat('d MMM', 'es').format(r.timestamp);
+    final statusColor = r.status.color;
+    final statusBg = r.status.bgColor;
+    return Card(
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+        leading: Container(
+          width: 54,
+          height: 54,
+          decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(12)),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('${r.systolic}',
+                  style: TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w700, color: statusColor)),
+              Text('/${r.diastolic}',
+                  style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w700, color: statusColor)),
+            ],
+          ),
+        ),
+        title: Text(r.status.label,
+            style: TextStyle(
+                fontWeight: FontWeight.w600, fontSize: 14, color: statusColor)),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('$dateStr · $timeStr',
+                style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+            if (r.patientName != 'Sin nombre' && r.patientName != 'Sin paciente')
+              Text('👤 ${r.patientName}',
+                  style: const TextStyle(fontSize: 11, color: AppColors.muted)),
+            if (r.note != null)
+              Text('📝 ${r.note}',
+                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+          ],
+        ),
+        trailing: IconButton(
+          icon: const Icon(Icons.delete_outline, color: AppColors.muted, size: 20),
+          onPressed: () => _deleteBP(r),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHRCard(HeartRateReading r) {
+    final timeStr = DateFormat('HH:mm').format(r.timestamp);
+    final dateStr = DateFormat('d MMM', 'es').format(r.timestamp);
+    final statusColor = r.status.color;
+    final statusBg = r.status.bgColor;
+    return Card(
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+        leading: Container(
+          width: 54,
+          height: 54,
+          decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(12)),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('${r.bpmValue}',
+                  style: TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w700, color: statusColor)),
+              Text('bpm',
+                  style:
+                      TextStyle(fontSize: 9, color: statusColor, fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ),
+        title: Text(r.status.label,
+            style: TextStyle(
+                fontWeight: FontWeight.w600, fontSize: 14, color: statusColor)),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('$dateStr · $timeStr',
+                style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+            if (r.patientName != 'Sin nombre' && r.patientName != 'Sin paciente')
+              Text('👤 ${r.patientName}',
+                  style: const TextStyle(fontSize: 11, color: AppColors.muted)),
+            if (r.note != null)
+              Text('📝 ${r.note}',
+                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+          ],
+        ),
+        trailing: IconButton(
+          icon: const Icon(Icons.delete_outline, color: AppColors.muted, size: 20),
+          onPressed: () => _deleteHR(r),
         ),
       ),
     );

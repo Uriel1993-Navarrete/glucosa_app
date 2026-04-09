@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'models/reading.dart';
 import 'models/oxygen_reading.dart';
+import 'models/blood_pressure_reading.dart';
+import 'models/heart_rate_reading.dart';
 import 'services/storage_service.dart';
 import 'services/supabase_service.dart';
 import 'screens/register_screen.dart';
@@ -108,6 +110,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int _tabIndex = 0;
   List<Reading> _allReadings = [];
   List<OxygenReading> _allOxygenReadings = [];
+  List<BloodPressureReading> _allBPReadings = [];
+  List<HeartRateReading> _allHRReadings = [];
   bool _loaded = false;
   String _currentUser = '';
   String _currentPatient = '';
@@ -119,6 +123,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<OxygenReading> get _patientOxygenReadings =>
       _allOxygenReadings.where((r) => r.patientName == _currentPatient).toList();
+
+  List<BloodPressureReading> get _patientBPReadings =>
+      _allBPReadings.where((r) => r.patientName == _currentPatient).toList();
+
+  List<HeartRateReading> get _patientHRReadings =>
+      _allHRReadings.where((r) => r.patientName == _currentPatient).toList();
 
   @override
   void initState() {
@@ -156,11 +166,17 @@ class _HomeScreenState extends State<HomeScreen> {
     local.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     final localOxygen = storage.loadOxygenReadings();
     localOxygen.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    final localBP = storage.loadBPReadings();
+    localBP.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    final localHR = storage.loadHRReadings();
+    localHR.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     setState(() {
       _currentUser = user;
       _currentPatient = patient;
       _allReadings = local;
       _allOxygenReadings = localOxygen;
+      _allBPReadings = localBP;
+      _allHRReadings = localHR;
       _loaded = true;
     });
     _syncBackground(storage, local);
@@ -175,15 +191,27 @@ class _HomeScreenState extends State<HomeScreen> {
       final merged = await SupabaseService().fetchAndMerge(local);
       await storage.saveReadings(merged);
       await storage.markSyncNow();
-      // Sync oxygen readings en background
+      // Sync oxygen
       final localOxygen = storage.loadOxygenReadings();
       await SupabaseService().syncOxygenToRemote(localOxygen);
       final mergedOxygen = await SupabaseService().fetchAndMergeOxygen(localOxygen);
       await storage.saveOxygenReadings(mergedOxygen);
+      // Sync presión arterial
+      final localBP = storage.loadBPReadings();
+      await SupabaseService().syncBPToRemote(localBP);
+      final mergedBP = await SupabaseService().fetchAndMergeBP(localBP);
+      await storage.saveBPReadings(mergedBP);
+      // Sync pulso
+      final localHR = storage.loadHRReadings();
+      await SupabaseService().syncHRToRemote(localHR);
+      final mergedHR = await SupabaseService().fetchAndMergeHR(localHR);
+      await storage.saveHRReadings(mergedHR);
       if (mounted) {
         setState(() {
           _allReadings = merged;
           _allOxygenReadings = mergedOxygen;
+          _allBPReadings = mergedBP;
+          _allHRReadings = mergedHR;
         });
       }
     } catch (e) {
@@ -197,9 +225,15 @@ class _HomeScreenState extends State<HomeScreen> {
     all.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     final allOxygen = storage.loadOxygenReadings();
     allOxygen.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    final allBP = storage.loadBPReadings();
+    allBP.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    final allHR = storage.loadHRReadings();
+    allHR.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     setState(() {
       _allReadings = all;
       _allOxygenReadings = allOxygen;
+      _allBPReadings = allBP;
+      _allHRReadings = allHR;
     });
   }
 
@@ -241,11 +275,15 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
 
     final oxygenReadings = _patientOxygenReadings;
+    final bpReadings = _patientBPReadings;
+    final hrReadings = _patientHRReadings;
 
     final pages = [
       RegisterScreen(
         readings: patientReadings,
         oxygenReadings: oxygenReadings,
+        bpReadings: bpReadings,
+        hrReadings: hrReadings,
         onSaved: _refresh,
         currentUser: _currentUser,
         currentPatient: _currentPatient,
@@ -253,12 +291,21 @@ class _HomeScreenState extends State<HomeScreen> {
       HistoryScreen(
         readings: patientReadings,
         oxygenReadings: oxygenReadings,
+        bpReadings: bpReadings,
+        hrReadings: hrReadings,
         onChanged: _refresh,
       ),
-      ChartScreen(readings: patientReadings, oxygenReadings: oxygenReadings),
+      ChartScreen(
+        readings: patientReadings,
+        oxygenReadings: oxygenReadings,
+        bpReadings: bpReadings,
+        hrReadings: hrReadings,
+      ),
       DataScreen(
         readings: patientReadings,
         oxygenReadings: oxygenReadings,
+        bpReadings: bpReadings,
+        hrReadings: hrReadings,
         onChanged: _refresh,
         currentPatient: _currentPatient,
       ),

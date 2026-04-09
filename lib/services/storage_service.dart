@@ -4,10 +4,14 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/reading.dart';
 import '../models/oxygen_reading.dart';
+import '../models/blood_pressure_reading.dart';
+import '../models/heart_rate_reading.dart';
 
 class StorageService {
   static const _key = 'glucosa_readings_v1';
   static const _keyOxygen = 'spo2_readings_v1';
+  static const _keyBP = 'bp_readings_v1';
+  static const _keyHR = 'hr_readings_v1';
   static const _userKey = 'current_user_name';
   static const _membersKey = 'family_members_cache';
   static const _syncDoneKey = 'initial_sync_done';
@@ -142,6 +146,86 @@ class StorageService {
     return file.path;
   }
 
+  // ── CRUD Presión Arterial ─────────────────────────────
+  List<BloodPressureReading> loadBPReadings() {
+    final raw = _prefs.getString(_keyBP);
+    if (raw == null) return [];
+    try {
+      final List<dynamic> list = jsonDecode(raw) as List;
+      return list.map((e) => BloodPressureReading.fromJson(e as Map<String, dynamic>)).toList();
+    } catch (_) { return []; }
+  }
+
+  Future<void> saveBPReadings(List<BloodPressureReading> readings) async {
+    await _prefs.setString(_keyBP, jsonEncode(readings.map((r) => r.toJson()).toList()));
+  }
+
+  Future<void> addBPReading(BloodPressureReading r, List<BloodPressureReading> current) async {
+    await saveBPReadings([r, ...current]);
+  }
+
+  Future<void> deleteBPReading(String id, List<BloodPressureReading> current) async {
+    await saveBPReadings(current.where((r) => r.id != id).toList());
+  }
+
+  // ── CRUD Pulso / FC ───────────────────────────────────
+  List<HeartRateReading> loadHRReadings() {
+    final raw = _prefs.getString(_keyHR);
+    if (raw == null) return [];
+    try {
+      final List<dynamic> list = jsonDecode(raw) as List;
+      return list.map((e) => HeartRateReading.fromJson(e as Map<String, dynamic>)).toList();
+    } catch (_) { return []; }
+  }
+
+  Future<void> saveHRReadings(List<HeartRateReading> readings) async {
+    await _prefs.setString(_keyHR, jsonEncode(readings.map((r) => r.toJson()).toList()));
+  }
+
+  Future<void> addHRReading(HeartRateReading r, List<HeartRateReading> current) async {
+    await saveHRReadings([r, ...current]);
+  }
+
+  Future<void> deleteHRReading(String id, List<HeartRateReading> current) async {
+    await saveHRReadings(current.where((r) => r.id != id).toList());
+  }
+
+  // ── EXPORT CSV Presión ────────────────────────────────
+  Future<String> exportBPCsvPath(List<BloodPressureReading> readings) async {
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/presion-historial.csv');
+    final buf = StringBuffer();
+    buf.writeln('Fecha,Hora,Sistólica (mmHg),Diastólica (mmHg),Estado,Notas,Paciente,Registrado por');
+    for (final r in readings.reversed) {
+      final date = '${r.timestamp.day}/${r.timestamp.month}/${r.timestamp.year}';
+      final time = '${r.timestamp.hour.toString().padLeft(2, '0')}:${r.timestamp.minute.toString().padLeft(2, '0')}';
+      final cells = [date, time, r.systolic.toString(), r.diastolic.toString(),
+        r.status.labelPlain, r.note ?? '', r.patientName, r.recordedBy]
+          .map((c) => '"$c"').join(',');
+      buf.writeln(cells);
+    }
+    await file.writeAsString('\uFEFF${buf.toString()}');
+    return file.path;
+  }
+
+  // ── EXPORT CSV Pulso ──────────────────────────────────
+  Future<String> exportHRCsvPath(List<HeartRateReading> readings) async {
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/pulso-historial.csv');
+    final buf = StringBuffer();
+    buf.writeln('Fecha,Hora,Pulso (bpm),Estado,Notas,Paciente,Registrado por');
+    for (final r in readings.reversed) {
+      final date = '${r.timestamp.day}/${r.timestamp.month}/${r.timestamp.year}';
+      final time = '${r.timestamp.hour.toString().padLeft(2, '0')}:${r.timestamp.minute.toString().padLeft(2, '0')}';
+      final cells = [date, time, r.bpmValue.toString(), r.status.labelPlain,
+        r.note ?? '', r.patientName, r.recordedBy]
+          .map((c) => '"$c"').join(',');
+      buf.writeln(cells);
+    }
+    await file.writeAsString('\uFEFF${buf.toString()}');
+    return file.path;
+  }
+
   Future<String> exportOxygenCsvPath(List<OxygenReading> readings) async {
     final dir = await getTemporaryDirectory();
     final file = File('${dir.path}/oxigenacion-historial.csv');
@@ -230,6 +314,8 @@ class StorageService {
   Future<void> clearAll() async {
     await _prefs.remove(_key);
     await _prefs.remove(_keyOxygen);
+    await _prefs.remove(_keyBP);
+    await _prefs.remove(_keyHR);
     try {
       final f = await _backupFile();
       if (await f.exists()) await f.delete();

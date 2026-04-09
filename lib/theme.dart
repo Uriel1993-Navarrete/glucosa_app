@@ -22,6 +22,24 @@ class AppColors {
   static const oxygenLowBg = Color(0xFFFFF3E0);
   static const oxygenCritical = Color(0xFFC62828);
   static const oxygenCriticalBg = Color(0xFFFDE8E6);
+  // Presión arterial
+  static const bpNormal    = Color(0xFF2E8B57);
+  static const bpNormalBg  = Color(0xFFE8F5EE);
+  static const bpElevated  = Color(0xFFC89020);
+  static const bpElevatedBg = Color(0xFFFEF9E6);
+  static const bpStage1    = Color(0xFFE07B3A);
+  static const bpStage1Bg  = Color(0xFFFEF0E7);
+  static const bpStage2    = Color(0xFFC0392B);
+  static const bpStage2Bg  = Color(0xFFFDE8E6);
+  static const bpCrisis    = Color(0xFF8B0000);
+  static const bpCrisisBg  = Color(0xFFF5D0CE);
+  // Pulso / FC
+  static const hrNormal     = Color(0xFF2A7D8C);
+  static const hrNormalBg   = Color(0xFFE0F3F6);
+  static const hrAbnormal   = Color(0xFFE07B3A);
+  static const hrAbnormalBg = Color(0xFFFEF0E7);
+  static const hrTachy      = Color(0xFFC0392B);
+  static const hrTachyBg    = Color(0xFFFDE8E6);
 }
 
 const kSpo2NormalMin = 95;
