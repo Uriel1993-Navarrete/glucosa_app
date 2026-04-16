@@ -54,6 +54,17 @@ const kMomentIcons = {
 };
 const kInsulinTypes = ['Rápida', 'Lenta / Basal', 'Mixta', 'Otra'];
 
+const kSpecialties = [
+  'Cardiólogo',
+  'Neurólogo',
+  'Neumólogo',
+  'Internista',
+  'Médico General',
+  'Otro',
+];
+
+const kDoseUnits = ['mg', 'ml', 'U', 'mcg', 'g', 'comprimidos'];
+
 ThemeData buildTheme() {
   return ThemeData(
     useMaterial3: true,
