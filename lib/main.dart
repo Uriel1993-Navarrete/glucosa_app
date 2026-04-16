@@ -15,12 +15,17 @@ import 'screens/chart_screen.dart';
 import 'screens/data_screen.dart';
 import 'screens/user_select_screen.dart';
 import 'screens/patient_select_screen.dart';
+import 'screens/medications_screen.dart';
+import 'screens/appointments_screen.dart';
+import 'screens/doctors_screen.dart';
+import 'services/notification_service.dart';
 import 'theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('es', null);
   await SupabaseService.initialize();
+  await NotificationService.instance.initialize();
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: AppColors.navy,
     statusBarIconBrightness: Brightness.light,
@@ -135,6 +140,30 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadReadings();
     _setupConnectivityListener();
+    _setupNotificationPermissions();
+  }
+
+  Future<void> _setupNotificationPermissions() async {
+    await NotificationService.instance.requestPermissions();
+
+    final hasAlarm =
+        await NotificationService.instance.hasExactAlarmPermission();
+    if (!hasAlarm && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Para recibir recordatorios, activa el permiso de alarmas: '
+            'Ajustes → Aplicaciones → Control de Glucosa → Alarmas y recordatorios',
+          ),
+          duration: Duration(seconds: 7),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    // La exención de optimización de batería se ofrece solo desde el panel
+    // de diagnóstico (🐛 en Medicamentos), no al inicio de la app.
   }
 
   void _setupConnectivityListener() {
@@ -179,6 +208,11 @@ class _HomeScreenState extends State<HomeScreen> {
       _allHRReadings = localHR;
       _loaded = true;
     });
+    // Programar notificaciones con los datos locales actuales
+    await NotificationService.instance.scheduleAll(
+      medications: storage.loadMedications(),
+      appointments: storage.loadAppointments(),
+    );
     _syncBackground(storage, local);
   }
 
@@ -206,6 +240,32 @@ class _HomeScreenState extends State<HomeScreen> {
       await SupabaseService().syncHRToRemote(localHR);
       final mergedHR = await SupabaseService().fetchAndMergeHR(localHR);
       await storage.saveHRReadings(mergedHR);
+      // Sync medicamentos
+      final localMeds = storage.loadMedications();
+      await SupabaseService().syncMedicationsToRemote(localMeds);
+      final mergedMeds = await SupabaseService().fetchAndMergeMedications(localMeds);
+      await storage.saveMedications(mergedMeds);
+      // Sync citas
+      final localAppts = storage.loadAppointments();
+      await SupabaseService().syncAppointmentsToRemote(localAppts);
+      final mergedAppts = await SupabaseService().fetchAndMergeAppointments(localAppts);
+      await storage.saveAppointments(mergedAppts);
+      // Reprogramar notificaciones con datos frescos del servidor
+      // (cubre el caso multi-dispositivo: meds registrados por otros familiares)
+      await NotificationService.instance.scheduleAll(
+        medications: mergedMeds,
+        appointments: mergedAppts,
+      );
+      // Sync doctores
+      final localDoctors = storage.loadDoctors();
+      await SupabaseService().syncDoctorsToRemote(localDoctors);
+      final mergedDoctors = await SupabaseService().fetchAndMergeDoctors(localDoctors);
+      await storage.saveDoctors(mergedDoctors);
+      // Sync prescripciones
+      final localRxs = storage.loadPrescriptions();
+      await SupabaseService().syncPrescriptionsToRemote(localRxs);
+      final mergedRxs = await SupabaseService().fetchAndMergePrescriptions(localRxs);
+      await storage.savePrescriptions(mergedRxs);
       if (mounted) {
         setState(() {
           _allReadings = merged;
@@ -315,6 +375,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final shortPatient = _currentPatient.split(' ').first;
 
     return Scaffold(
+      drawer: _buildDrawer(context),
       appBar: AppBar(
         flexibleSpace: Container(
           decoration: const BoxDecoration(
@@ -323,6 +384,13 @@ class _HomeScreenState extends State<HomeScreen> {
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
             ),
+          ),
+        ),
+        leading: Builder(
+          builder: (ctx) => IconButton(
+            icon: const Icon(Icons.menu, color: Colors.white),
+            onPressed: () => Scaffold.of(ctx).openDrawer(),
+            tooltip: 'Menú',
           ),
         ),
         title: Row(
@@ -395,6 +463,164 @@ class _HomeScreenState extends State<HomeScreen> {
                   label: e.value.label,
                 ))
             .toList(),
+      ),
+    );
+  }
+
+  Widget _buildDrawer(BuildContext context) {
+    return Drawer(
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.only(
+              top: MediaQuery.of(context).padding.top + 20,
+              bottom: 20,
+              left: 20,
+              right: 20,
+            ),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [AppColors.navy, AppColors.teal],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('🏥',
+                    style: TextStyle(fontSize: 32)),
+                const SizedBox(height: 8),
+                Text(
+                  _currentPatient,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Registrado por: $_currentUser',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: .75),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          ListTile(
+            leading: const Text('👨‍⚕️', style: TextStyle(fontSize: 22)),
+            title: const Text(
+              'Doctores',
+              style: TextStyle(
+                  fontWeight: FontWeight.w600, color: AppColors.navy),
+            ),
+            subtitle: const Text(
+              'Catálogo de médicos',
+              style: TextStyle(fontSize: 11, color: AppColors.muted),
+            ),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => DoctorsScreen(
+                    currentPatient: _currentPatient,
+                    currentUser: _currentUser,
+                  ),
+                ),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Text('💊', style: TextStyle(fontSize: 22)),
+            title: const Text(
+              'Medicamentos',
+              style: TextStyle(
+                  fontWeight: FontWeight.w600, color: AppColors.navy),
+            ),
+            subtitle: const Text(
+              'Ver y administrar medicamentos',
+              style: TextStyle(fontSize: 11, color: AppColors.muted),
+            ),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => MedicationsScreen(
+                    currentPatient: _currentPatient,
+                    currentUser: _currentUser,
+                  ),
+                ),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Text('📅', style: TextStyle(fontSize: 22)),
+            title: const Text(
+              'Citas Médicas',
+              style: TextStyle(
+                  fontWeight: FontWeight.w600, color: AppColors.navy),
+            ),
+            subtitle: const Text(
+              'Calendario de consultas',
+              style: TextStyle(fontSize: 11, color: AppColors.muted),
+            ),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AppointmentsScreen(
+                    currentPatient: _currentPatient,
+                    currentUser: _currentUser,
+                  ),
+                ),
+              );
+            },
+          ),
+          const Divider(),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Text(
+              'Próximamente',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.muted.withValues(alpha: .7),
+                letterSpacing: .5,
+              ),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.notifications_outlined,
+                color: AppColors.muted, size: 22),
+            title: const Text(
+              'Notificaciones',
+              style: TextStyle(color: AppColors.muted),
+            ),
+            subtitle: const Text(
+              'Recordatorios de medicamentos y citas',
+              style: TextStyle(fontSize: 11, color: AppColors.muted),
+            ),
+            enabled: false,
+          ),
+          const Spacer(),
+          const Divider(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            child: Text(
+              'Control de Glucosa v1.0',
+              style: TextStyle(
+                  fontSize: 11, color: AppColors.muted.withValues(alpha: .6)),
+            ),
+          ),
+        ],
       ),
     );
   }

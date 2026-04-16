@@ -3,6 +3,10 @@ import '../models/reading.dart';
 import '../models/oxygen_reading.dart';
 import '../models/blood_pressure_reading.dart';
 import '../models/heart_rate_reading.dart';
+import '../models/medication.dart';
+import '../models/appointment.dart';
+import '../models/doctor.dart';
+import '../models/prescription.dart';
 
 class SupabaseService {
   static const _url = 'https://kfbfnfrwhmdoeqxyikdb.supabase.co';
@@ -209,5 +213,173 @@ class SupabaseService {
     final list = merged.values.toList();
     list.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     return list;
+  }
+
+  // ── Medicamentos ──────────────────────────────────────
+  Future<List<Medication>> fetchAllMedications() async {
+    final data = await _client
+        .from('medications')
+        .select()
+        .order('created_at', ascending: false);
+    return (data as List)
+        .map((e) => Medication.fromSupabaseRow(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> pushMedication(Medication m) async {
+    await _client.from('medications').upsert(m.toSupabaseRow());
+  }
+
+  Future<void> syncMedicationsToRemote(List<Medication> local) async {
+    if (local.isEmpty) return;
+    final remoteData = await _client.from('medications').select('id');
+    final remoteIds =
+        (remoteData as List).map((e) => e['id'] as String).toSet();
+    final toUpload = local.where((m) => !remoteIds.contains(m.id)).toList();
+    if (toUpload.isEmpty) return;
+    await _client
+        .from('medications')
+        .upsert(toUpload.map((m) => m.toSupabaseRow()).toList());
+  }
+
+  Future<List<Medication>> fetchAndMergeMedications(
+      List<Medication> local) async {
+    final remote = await fetchAllMedications();
+    final merged = <String, Medication>{};
+    for (final m in local) {
+      merged[m.id] = m;
+    }
+    for (final m in remote) {
+      merged[m.id] = m;
+    }
+    return merged.values.toList();
+  }
+
+  Future<void> deleteMedicationRemote(String id) async {
+    await _client.from('medications').delete().eq('id', id);
+  }
+
+  // ── Citas médicas ─────────────────────────────────────
+  Future<List<MedicalAppointment>> fetchAllAppointments() async {
+    final data = await _client
+        .from('appointments')
+        .select()
+        .order('appointment_date', ascending: true);
+    return (data as List)
+        .map((e) => MedicalAppointment.fromSupabaseRow(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> pushAppointment(MedicalAppointment a) async {
+    await _client.from('appointments').upsert(a.toSupabaseRow());
+  }
+
+  Future<void> syncAppointmentsToRemote(
+      List<MedicalAppointment> local) async {
+    if (local.isEmpty) return;
+    final remoteData = await _client.from('appointments').select('id');
+    final remoteIds =
+        (remoteData as List).map((e) => e['id'] as String).toSet();
+    final toUpload = local.where((a) => !remoteIds.contains(a.id)).toList();
+    if (toUpload.isEmpty) return;
+    await _client
+        .from('appointments')
+        .upsert(toUpload.map((a) => a.toSupabaseRow()).toList());
+  }
+
+  Future<List<MedicalAppointment>> fetchAndMergeAppointments(
+      List<MedicalAppointment> local) async {
+    final remote = await fetchAllAppointments();
+    final merged = <String, MedicalAppointment>{};
+    for (final a in local) {
+      merged[a.id] = a;
+    }
+    for (final a in remote) {
+      merged[a.id] = a;
+    }
+    return merged.values.toList();
+  }
+
+  Future<void> deleteAppointmentRemote(String id) async {
+    await _client.from('appointments').delete().eq('id', id);
+  }
+
+  // ── Doctores ──────────────────────────────────────────
+  Future<List<Doctor>> fetchAllDoctors() async {
+    final data = await _client
+        .from('doctors')
+        .select()
+        .order('created_at', ascending: false);
+    return (data as List)
+        .map((e) => Doctor.fromSupabaseRow(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> pushDoctor(Doctor d) async {
+    await _client.from('doctors').upsert(d.toSupabaseRow());
+  }
+
+  Future<void> syncDoctorsToRemote(List<Doctor> local) async {
+    if (local.isEmpty) return;
+    final remoteData = await _client.from('doctors').select('id');
+    final remoteIds =
+        (remoteData as List).map((e) => e['id'] as String).toSet();
+    final toUpload = local.where((d) => !remoteIds.contains(d.id)).toList();
+    if (toUpload.isEmpty) return;
+    await _client
+        .from('doctors')
+        .upsert(toUpload.map((d) => d.toSupabaseRow()).toList());
+  }
+
+  Future<List<Doctor>> fetchAndMergeDoctors(List<Doctor> local) async {
+    final remote = await fetchAllDoctors();
+    final merged = <String, Doctor>{};
+    for (final d in local) merged[d.id] = d;
+    for (final d in remote) merged[d.id] = d;
+    return merged.values.toList();
+  }
+
+  Future<void> deleteDoctorRemote(String id) async {
+    await _client.from('doctors').delete().eq('id', id);
+  }
+
+  // ── Prescripciones ────────────────────────────────────
+  Future<List<Prescription>> fetchAllPrescriptions() async {
+    final data = await _client
+        .from('prescriptions')
+        .select()
+        .order('date', ascending: false);
+    return (data as List)
+        .map((e) => Prescription.fromSupabaseRow(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> pushPrescription(Prescription rx) async {
+    await _client.from('prescriptions').upsert(rx.toSupabaseRow());
+  }
+
+  Future<void> syncPrescriptionsToRemote(List<Prescription> local) async {
+    if (local.isEmpty) return;
+    final remoteData = await _client.from('prescriptions').select('id');
+    final remoteIds =
+        (remoteData as List).map((e) => e['id'] as String).toSet();
+    final toUpload = local.where((r) => !remoteIds.contains(r.id)).toList();
+    if (toUpload.isEmpty) return;
+    await _client
+        .from('prescriptions')
+        .upsert(toUpload.map((r) => r.toSupabaseRow()).toList());
+  }
+
+  Future<List<Prescription>> fetchAndMergePrescriptions(
+      List<Prescription> local) async {
+    final remote = await fetchAllPrescriptions();
+    final merged = <String, Prescription>{};
+    for (final r in local) merged[r.id] = r;
+    for (final r in remote) merged[r.id] = r;
+    return merged.values.toList();
+  }
+
+  Future<void> deletePrescriptionRemote(String id) async {
+    await _client.from('prescriptions').delete().eq('id', id);
   }
 }

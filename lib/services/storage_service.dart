@@ -6,9 +6,17 @@ import '../models/reading.dart';
 import '../models/oxygen_reading.dart';
 import '../models/blood_pressure_reading.dart';
 import '../models/heart_rate_reading.dart';
+import '../models/medication.dart';
+import '../models/appointment.dart';
+import '../models/doctor.dart';
+import '../models/prescription.dart';
 
 class StorageService {
   static const _key = 'glucosa_readings_v1';
+  static const _keyMedications = 'medications_v1';
+  static const _keyAppointments = 'appointments_v1';
+  static const _keyDoctors = 'doctors_v1';
+  static const _keyPrescriptions = 'prescriptions_v1';
   static const _keyOxygen = 'spo2_readings_v1';
   static const _keyBP = 'bp_readings_v1';
   static const _keyHR = 'hr_readings_v1';
@@ -309,6 +317,134 @@ class StorageService {
 
   Future<void> markSyncNow() =>
       _prefs.setString(_lastSyncKey, DateTime.now().toIso8601String());
+
+  // ── CRUD Medicamentos ─────────────────────────────────
+  List<Medication> loadMedications() {
+    final raw = _prefs.getString(_keyMedications);
+    if (raw == null) return [];
+    try {
+      final List<dynamic> list = jsonDecode(raw) as List;
+      return list.map((e) => Medication.fromJson(e as Map<String, dynamic>)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> saveMedications(List<Medication> meds) async {
+    await _prefs.setString(
+        _keyMedications, jsonEncode(meds.map((m) => m.toJson()).toList()));
+  }
+
+  Future<void> addMedication(Medication med, List<Medication> current) async {
+    await saveMedications([med, ...current]);
+  }
+
+  Future<void> updateMedication(Medication med, List<Medication> current) async {
+    final updated = current.map((m) => m.id == med.id ? med : m).toList();
+    await saveMedications(updated);
+  }
+
+  Future<void> deleteMedication(String id, List<Medication> current) async {
+    await saveMedications(current.where((m) => m.id != id).toList());
+  }
+
+  // ── CRUD Citas Médicas ────────────────────────────────
+  List<MedicalAppointment> loadAppointments() {
+    final raw = _prefs.getString(_keyAppointments);
+    if (raw == null) return [];
+    try {
+      final List<dynamic> list = jsonDecode(raw) as List;
+      return list
+          .map((e) => MedicalAppointment.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> saveAppointments(List<MedicalAppointment> appts) async {
+    await _prefs.setString(
+        _keyAppointments, jsonEncode(appts.map((a) => a.toJson()).toList()));
+  }
+
+  Future<void> addAppointment(
+      MedicalAppointment appt, List<MedicalAppointment> current) async {
+    await saveAppointments([appt, ...current]);
+  }
+
+  Future<void> updateAppointment(
+      MedicalAppointment appt, List<MedicalAppointment> current) async {
+    final updated = current.map((a) => a.id == appt.id ? appt : a).toList();
+    await saveAppointments(updated);
+  }
+
+  Future<void> deleteAppointment(
+      String id, List<MedicalAppointment> current) async {
+    await saveAppointments(current.where((a) => a.id != id).toList());
+  }
+
+  // ── CRUD Doctores ─────────────────────────────────────
+  List<Doctor> loadDoctors() {
+    final raw = _prefs.getString(_keyDoctors);
+    if (raw == null) return [];
+    try {
+      final List<dynamic> list = jsonDecode(raw) as List;
+      return list.map((e) => Doctor.fromJson(e as Map<String, dynamic>)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> saveDoctors(List<Doctor> docs) async {
+    await _prefs.setString(
+        _keyDoctors, jsonEncode(docs.map((d) => d.toJson()).toList()));
+  }
+
+  Future<void> addDoctor(Doctor d, List<Doctor> current) async {
+    await saveDoctors([d, ...current]);
+  }
+
+  Future<void> updateDoctor(Doctor d, List<Doctor> current) async {
+    await saveDoctors(current.map((e) => e.id == d.id ? d : e).toList());
+  }
+
+  Future<void> deleteDoctor(String id, List<Doctor> current) async {
+    await saveDoctors(current.where((d) => d.id != id).toList());
+  }
+
+  // ── CRUD Prescripciones ───────────────────────────────
+  List<Prescription> loadPrescriptions() {
+    final raw = _prefs.getString(_keyPrescriptions);
+    if (raw == null) return [];
+    try {
+      final List<dynamic> list = jsonDecode(raw) as List;
+      return list
+          .map((e) => Prescription.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> savePrescriptions(List<Prescription> rxs) async {
+    await _prefs.setString(
+        _keyPrescriptions, jsonEncode(rxs.map((r) => r.toJson()).toList()));
+  }
+
+  Future<void> addPrescription(Prescription rx, List<Prescription> current) async {
+    await savePrescriptions([rx, ...current]);
+  }
+
+  Future<void> updatePrescription(
+      Prescription rx, List<Prescription> current) async {
+    await savePrescriptions(
+        current.map((e) => e.id == rx.id ? rx : e).toList());
+  }
+
+  Future<void> deletePrescription(
+      String id, List<Prescription> current) async {
+    await savePrescriptions(current.where((r) => r.id != id).toList());
+  }
 
   // ── RESET ─────────────────────────────────────────────
   Future<void> clearAll() async {
